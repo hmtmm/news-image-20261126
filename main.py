@@ -17,6 +17,27 @@ MAX_BYTES = 1048576
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
+def validate(data):
+    """Check the image against the competition's shape rules.
+
+    Fail loudly with a clear message and a non-zero exit instead of
+    relying on bare asserts, which Python strips when run with -O.
+    Returns the image's width and height in pixels.
+    """
+    if data[:8] != PNG_MAGIC:
+        raise SystemExit("entry.png is not a PNG")
+    if len(data) > MAX_BYTES:
+        raise SystemExit("entry.png is over the 1 MiB limit")
+    # PNG IHDR: width and height are the 4-byte big-endian values at
+    # offsets 16 and 20; the image must be at most 1024 by 1024 pixels.
+    width = int.from_bytes(data[16:20], "big")
+    height = int.from_bytes(data[20:24], "big")
+    if width > 1024 or height > 1024:
+        raise SystemExit("entry.png is %dx%d, over the 1024x1024 limit"
+                         % (width, height))
+    return width, height
+
+
 def main():
     out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR")
     if not out_dir:
@@ -24,20 +45,7 @@ def main():
         return 1
     with open(SRC, "rb") as f:
         data = f.read()
-    if data[:8] != PNG_MAGIC:
-        print("entry.png is not a PNG", file=sys.stderr)
-        return 1
-    if len(data) > MAX_BYTES:
-        print("entry.png is over the 1 MiB limit", file=sys.stderr)
-        return 1
-    # PNG IHDR: width and height are the 4-byte big-endian values at
-    # offsets 16 and 20; the image must be at most 1024 by 1024 pixels.
-    width = int.from_bytes(data[16:20], "big")
-    height = int.from_bytes(data[20:24], "big")
-    if width > 1024 or height > 1024:
-        print("entry.png is %dx%d, over the 1024x1024 limit"
-              % (width, height), file=sys.stderr)
-        return 1
+    width, height = validate(data)
     digest = hashlib.sha256(data).hexdigest()
     os.makedirs(out_dir, exist_ok=True)
     dest = os.path.join(out_dir, "entry.png")
@@ -48,7 +56,8 @@ def main():
     if written != data:
         print("written bytes differ from entry.png", file=sys.stderr)
         return 1
-    print("wrote %s (%d bytes, sha256 %s)" % (dest, len(data), digest))
+    print("wrote %s (%d bytes, %dx%d, sha256 %s)"
+          % (dest, len(data), width, height, digest))
     return 0
 
 
